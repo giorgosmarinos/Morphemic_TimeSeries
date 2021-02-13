@@ -30,8 +30,7 @@ def percent_missing(data):
     print(missing_value_df) #TODO dont know for sure if it has to return something or just to print
     #return missing_value_df #if needed we can use return here
 
-#check data TODO remove before execute code
-data = load_data()
+
 
 
 #TODO here has to be placed a function for handling missing data
@@ -144,8 +143,6 @@ def missing_data_handling(data ,drop_all_nan = False, fill_with_mean = False,
 
     return data
 
-data = pd.read_csv('/media/giwrikas/DATA/Morphemic_datasets/all-3.csv')
-data_ = missing_data_handling(data, drop_all_nan=True)
 
 def datetime_conversion(data, column_name):
     data[column_name] = pd.to_datetime(data[column_name], unit='s')
