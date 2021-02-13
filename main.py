@@ -7,7 +7,7 @@ from pre_processing.Data_transformation import predictions_and_scores, Min_max_s
 import matplotlib.pyplot as plt
 import pandas as pd
 
-metrics = ['request_rate', 'cpu_usage', 'memory','served_request']
+metrics = ['performance','request_rate', 'cpu_usage', 'memory','served_request']
 
 data = load_data()
 
