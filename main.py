@@ -7,6 +7,8 @@ from pre_processing.Data_transformation import predictions_and_scores, Min_max_s
 import matplotlib.pyplot as plt
 import pandas as pd
 
+metrics = ['request_rate', 'cpu_usage', 'memory','served_request']
+
 data = load_data()
 
 data = data.round(decimals=2)
@@ -17,7 +19,7 @@ percent_missing(data)
 
 data = datetime_conversion(data, 'time')
 
-data = important_data(data, ['request_rate', 'cpu_usage', 'memory'])
+data = important_data(data, metrics)
 
 data = resample(data)
 

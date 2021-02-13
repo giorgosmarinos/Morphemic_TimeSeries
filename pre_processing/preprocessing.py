@@ -1,24 +1,22 @@
 import numpy as np
 import pandas as pd
+import os 
 
+dataset_folder = "/home/jean-didier/Projects/morphemic/time-series-data/connected_consumer"
+#dataset_folder = "/media/giwrikas/DATA/Morphemic_datasets"
+
+def get_all_files():
+    _files = []
+    for root, dirs, files in os.walk(dataset_folder):
+        for filename in files:
+            _files.append(root +  '/' + filename)
+    return _files 
 
 def load_data():
-    data_0 = pd.read_csv('/media/giwrikas/DATA/Morphemic_datasets/result_0.csv',  error_bad_lines=False)
-    data_1 = pd.read_csv('/media/giwrikas/DATA/Morphemic_datasets/result_1.csv',  error_bad_lines=False)
-    data_2 = pd.read_csv('/media/giwrikas/DATA/Morphemic_datasets/result_2.csv',  error_bad_lines=False)
-    data_3 = pd.read_csv('/media/giwrikas/DATA/Morphemic_datasets/result_3.csv',  error_bad_lines=False)
-    data_4 = pd.read_csv('/media/giwrikas/DATA/Morphemic_datasets/result_4.csv',  error_bad_lines=False)
-    data_5 = pd.read_csv('/media/giwrikas/DATA/Morphemic_datasets/result_5.csv',  error_bad_lines=False)
-    data_6 = pd.read_csv('/media/giwrikas/DATA/Morphemic_datasets/result_6.csv',  error_bad_lines=False)
-    data_7 = pd.read_csv('/media/giwrikas/DATA/Morphemic_datasets/result_7.csv',  error_bad_lines=False)
-    data_8 = pd.read_csv('/media/giwrikas/DATA/Morphemic_datasets/result_8.csv',  error_bad_lines=False)
-    data_9 = pd.read_csv('/media/giwrikas/DATA/Morphemic_datasets/result_9.csv',  error_bad_lines=False)
-    data_10 = pd.read_csv('/media/giwrikas/DATA/Morphemic_datasets/result_10.csv',  error_bad_lines=False)
-    data_11 = pd.read_csv('/media/giwrikas/DATA/Morphemic_datasets/result_11.csv',  error_bad_lines=False)
-    data = pd.concat([data_0, data_1, data_2, data_3, data_4, data_5,
-                      data_6, data_7, data_8, data_9, data_10, data_11], axis=0)
-    return data
-
+    all_df = []
+    for _file in get_all_files():
+        all_df.append(pd.read_csv(_file,low_memory=False, error_bad_lines=False))
+    return pd.concat(all_df, axis=0)
 
 def percent_missing(data):
     percent_missing = data.isnull().sum() * 100 / len(data)
