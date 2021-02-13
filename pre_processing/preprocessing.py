@@ -32,7 +32,6 @@ def percent_missing(data):
 
 
 
-
 #TODO here has to be placed a function for handling missing data
 def missing_data_handling(data ,drop_all_nan = False, fill_with_mean = False,
                           fill_with_median = False, rolling_mean = False, rolling_median = False):
@@ -142,6 +141,7 @@ def missing_data_handling(data ,drop_all_nan = False, fill_with_mean = False,
         pass
 
     return data
+
 
 
 def datetime_conversion(data, column_name):

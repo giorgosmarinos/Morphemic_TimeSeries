@@ -51,24 +51,7 @@ def resample(data, time, way):
 	return y
 
 
-#TODO The lines below should be placed in relevant functions
-"""
-# integer encode direction
-#encoder = LabelEncoder()
-# ensure all data is float
-values = values.astype('float32')
-# normalize features
-scaler = MinMaxScaler(feature_range=(-1, 1))
-scaled = scaler.fit_transform(values)
-# specify the number of lag steps
-n_steps = 24
-n_features = 3
-# frame as supervised learning
-reframed = series_to_supervised(scaled, n_steps , 1)
-# drop columns we don't want to predict
-reframed.drop(columns=['var2(t)','var3(t)'], axis=1, inplace=True)
 
-"""
 def reshape_data_single_lag(reframed, train_percentage, test_percentage, valid_percentage):
 	# split into train and test sets
 	values = reframed.values
