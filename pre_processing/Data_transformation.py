@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 
 # convert series to supervised learning
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 
 from numpy import concatenate
@@ -137,3 +138,37 @@ def predictions_and_scores(model, test_X,test_y):
 	r2score = r2_score(test_y_reshaped, yhat_reshaped)
 	print('Test RMSE: %.3f' % rmse)
 	print('R2_score: %.3f' % r2score)
+
+# multivariate data preparation
+from numpy import array
+from numpy import hstack
+
+
+#This one for CNN
+# split a multivariate sequence into samples
+def split_sequences(sequences, n_steps):
+	X, y = list(), list()
+	for i in range(len(sequences)):
+		# find the end of this pattern
+		end_ix = i + n_steps
+		# check if we are beyond the dataset
+		if end_ix > len(sequences):
+			break
+		# gather input and output parts of the pattern
+		seq_x, seq_y = sequences[i:end_ix, :-1], sequences[end_ix-1, -1]
+		X.append(seq_x)
+		y.append(seq_y)
+	X_train, X_test, y_train, y_test = train_test_split(
+		np.array(X), np.array(y), test_size=0.33, random_state=42)
+	return array(X_train), array(y_train), array(X_test), array(y_test)
+
+
+def prediction_and_score_for_CNN(n_steps,n_features, x_input, model,test_y ):
+	#x_input = x_input.reshape((1, n_steps, n_features))
+	yhat = model.predict(x_input, verbose=2)
+	# calculate RMSE and R2_score
+	rmse = sqrt(mean_squared_error(test_y, yhat))
+	r2score = r2_score(test_y, yhat)
+	print('Test RMSE: %.3f' % rmse)
+	print('R2_score: %.3f' % r2score)
+	#print(yhat)
