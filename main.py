@@ -39,7 +39,7 @@ print(y_test.shape)
 #for i in range(len(X_train)):
 #	print(X_train[i], y_train[i])
 
-train_X, train_y, test_X, test_y, val_X, val_y = reshape_data_single_lag(data,  0.6, 0.2, 0.2 )
+"""train_X, train_y, test_X, test_y, val_X, val_y = reshape_data_single_lag(data,  0.6, 0.2, 0.2 )
 
 model = LSTM_model(train_X, train_y, test_X, test_y)
 
@@ -47,7 +47,7 @@ model.summary()
 
 plot_train_test_loss(model)
 
-predictions_and_scores(model, test_X, test_y)
+predictions_and_scores(model, test_X, test_y)"""
 
 model = CNN_model(n_steps=3, n_features=2, X=X_train, y=y_train, val_x=X_test,  val_y=y_test)
 plot_train_test_loss(model)

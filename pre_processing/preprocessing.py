@@ -2,8 +2,8 @@ import numpy as np
 import pandas as pd
 import os 
 
-#dataset_folder = "/home/jean-didier/Projects/morphemic/time-series-data/connected_consumer"
-dataset_folder = "/media/giwrikas/DATA/Morphemic_datasets"
+dataset_folder = "/home/jean-didier/Projects/morphemic/time-series-data/connected_consumer"
+#dataset_folder = "/media/giwrikas/DATA/Morphemic_datasets"
 
 def get_all_files():
     _files = []
@@ -15,6 +15,7 @@ def get_all_files():
 def load_data():
     all_df = []
     for _file in get_all_files():
+        print(_file)
         all_df.append(pd.read_csv(_file,low_memory=False, error_bad_lines=False))
         print(all_df)
     return pd.concat(all_df, axis=0)
