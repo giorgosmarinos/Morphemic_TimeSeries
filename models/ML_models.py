@@ -20,8 +20,7 @@ def LSTM_model(train_X, train_y, test_X, test_y):
     model.add(Dense(1))
     model.compile(loss='mse', optimizer='adam')
     # fit network
-    model.fit(train_X, train_y, epochs=150, batch_size=128, validation_data=(test_X, test_y),
-              verbose=2, shuffle=False)
+    model.fit(train_X, train_y, epochs=150, batch_size=128, validation_data=(test_X, test_y),verbose=2, shuffle=False)
     return model
 
 
