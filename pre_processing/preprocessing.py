@@ -15,9 +15,7 @@ def get_all_files():
 def load_data():
     all_df = []
     for _file in get_all_files():
-        print(_file)
         all_df.append(pd.read_csv(_file,low_memory=False, error_bad_lines=False))
-        print(all_df)
     return pd.concat(all_df, axis=0)
 
 def percent_missing(data):
