@@ -154,8 +154,8 @@ def important_data(data, list_of_important_features):
     return data_
 
 
-def resample(data):
-    resampled_data= data.resample('360S').mean() #TODO maybe the dot in data_. will cause problems
+def resample(data, rate='360S'):
+    resampled_data= data.resample(rate).mean() #TODO maybe the dot in data_. will cause problems
     return resampled_data
 
 

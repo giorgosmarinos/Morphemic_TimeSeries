@@ -103,7 +103,10 @@ class Train():
         else:
             self.applications_model[self.application]["status"] = "Ready"
 
-    def train(self, target):
+    def computePeriodicity(self, data):
+        pass 
+
+    def train(self, target, horizon):
         error = False 
         data = self.loadDataset()
         if data == None:

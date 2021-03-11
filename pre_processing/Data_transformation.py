@@ -158,8 +158,7 @@ def split_sequences(sequences, n_steps):
 		seq_x, seq_y = sequences[i:end_ix, :-1], sequences[end_ix-1, -1]
 		X.append(seq_x)
 		y.append(seq_y)
-	X_train, X_test, y_train, y_test = train_test_split(
-		np.array(X), np.array(y), test_size=0.33, random_state=42)
+	X_train, X_test, y_train, y_test = train_test_split(np.array(X), np.array(y), test_size=0.33, random_state=42)
 	return array(X_train), array(y_train), array(X_test), array(y_test)
 
 
