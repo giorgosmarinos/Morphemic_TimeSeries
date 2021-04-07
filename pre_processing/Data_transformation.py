@@ -69,7 +69,7 @@ def reshape_data_single_lag(reframed, train_percentage, test_percentage, valid_p
 	train_X, train_y = train[:, :-1], train[:, -1]
 	test_X, test_y = test[:, :-1], test[:, -1]
 	val_X, val_y = val[:, :-1], val[:, -1]
-	print(train_X.shape)
+	#print(train_X.shape)
 
 	### this reshape below is we using it for univariate timeseries
 	# reshape input to be 3D [samples, timesteps, features]
@@ -77,7 +77,7 @@ def reshape_data_single_lag(reframed, train_percentage, test_percentage, valid_p
 	test_X = test_X.reshape((test_X.shape[0], 1, test_X.shape[1]))
 	val_X = val_X.reshape((val_X.shape[0], 1, val_X.shape[1]))
 
-	print(train_X.shape, train_y.shape, test_X.shape, test_y.shape, val_X.shape, val_y.shape)
+	#print(train_X.shape, train_y.shape, test_X.shape, test_y.shape, val_X.shape, val_y.shape)
 
 	return train_X, train_y, test_X, test_y, val_X, val_y #TODO put here the object we need to be returned
 

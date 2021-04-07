@@ -10,7 +10,7 @@ def LSTM_model(train_X, train_y, test_X, test_y):
     model = Sequential()
     model.add(LSTM(90, return_sequences = True,  input_shape=(train_X.shape[1], train_X.shape[2])))  # 1 , 2
     model.add(Dropout(0.2))
-    model.add(LSTM(60, return_sequences = False ))
+    model.add(LSTM(60, return_sequences = True ))
     model.add(Dropout(0.2))
     #model.add(LSTM(30, return_sequences = False ))
     #model.add(Dropout(0.2))

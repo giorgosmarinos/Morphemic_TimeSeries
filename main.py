@@ -2,10 +2,12 @@ from pre_processing.preprocessing import load_data, percent_missing, datetime_co
 from pre_processing.preprocessing import important_data, resample, resample_median, missing_data_handling
 from pre_processing.Data_transformation import reshape_data_single_lag, series_to_supervised
 from models.ML_models import LSTM_model
-from plots.plots import plot_train_test_loss
+from plots.plots import plot_train_test_loss, fun_plot_train_test_loss
 from pre_processing.Data_transformation import predictions_and_scores, Min_max_scal
 import matplotlib.pyplot as plt
 import pandas as pd
+from models.functional_API_models import fun_LSTM_model
+
 
 metrics = ['performance','request_rate', 'cpu_usage', 'memory','served_request']
 
@@ -65,12 +67,21 @@ X_val_.to_csv('C:\\Users\\geo_m\\PycharmProjects\\Morphemic_TimeSeries\\datasets
 y_val_ = pd.DataFrame(y_val)
 y_val_.to_csv('C:\\Users\\geo_m\\PycharmProjects\\Morphemic_TimeSeries\\datasets\\val_y.csv')
 
-model = LSTM_model(train_X, train_y, test_X, test_y)
+#first model
+#model = LSTM_model(train_X, train_y, test_X, test_y)
+
+#when the model comes from functional API
+model, history, test_scores = fun_LSTM_model(train_X, train_y, test_X, test_y, val_X, val_y)
 
 model.save('C:\\Users\\geo_m\\PycharmProjects\\Morphemic_TimeSeries\\models_saved\\lstm.h5')
 
 model.summary()
 
-plot_train_test_loss(model)
+#first plot
+#plot_train_test_loss(model)
+
+#when the model comes from functional API
+fun_plot_train_test_loss(model, history)
+
 
 predictions_and_scores(model, test_X, test_y)
