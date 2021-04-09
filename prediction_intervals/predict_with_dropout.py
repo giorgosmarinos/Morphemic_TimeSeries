@@ -103,7 +103,7 @@ input_data = val_X
 
 num_samples = input_data.shape[0]  #values[0]
 
-path_to_model = 'C:\\Users\\geo_m\\PycharmProjects\\Morphemic_TimeSeries\\models_saved\\lstm.h5'
+path_to_model = '/models_saved/lstm.h5'
 model = load_model(path_to_model)
 
 predict_with_dropout = create_dropout_predict_function(model, dropout)
