@@ -65,9 +65,14 @@ def prediction_interval(model, X_train, y_train, x0, alpha: float = 0.05):
   qs = [100 * alpha / 2, 100 * (1 - alpha / 2)]
   percentiles = np.percentile(C, q = qs)
 
+  print(percentiles[0], model.predict(x0), percentiles[1])
+
   return percentiles[0], model.predict(x0), percentiles[1]
 
 
+#here I am putting again the function that I have already developed in Data_transformation.py
+#in order to be able to run the script. Once the prediction interval function be used in the main.py
+#we no longer keep here the "reshape_data_single_lag" function
 def reshape_data_single_lag(reframed, train_percentage, test_percentage, valid_percentage):
 	# split into train and test sets
 	values = reframed.values
@@ -102,11 +107,22 @@ path_to_model = 'C:\\Users\\geo_m\\PycharmProjects\\Morphemic_TimeSeries\\models
 model = load_model(path_to_model)
 
 #save data into a csv for testing the confidence interval
+import pandas as pd
 data = pd.read_csv('C:\\Users\\geo_m\\PycharmProjects\\Morphemic_TimeSeries\\datasets\\data.csv')
 
 data = data.drop(columns=['Unnamed: 0'])
 X_train, y_train, test_X, test_y, X_val, val_y = reshape_data_single_lag(data,  0.6, 0.2, 0.2 )
 
-x_Zero = X_val[0].reshape(1,1,122)#.shape#.reshape(1,1,123)
-#x_Zero.reshape(-1,1).shape
-prediction_interval(model, X_train, y_train, x_Zero, alpha=0.05)
+results = []
+i=0
+while i < 2:
+    print(i)
+    x_Zero = X_val[i].reshape(1,1,122)#.shape#.reshape(1,1,123)
+    print("x zero is now:", x_Zero)
+    #x_Zero.reshape(-1,1).shape
+    [lower_bound, prediction, upper_bound] = prediction_interval(model, X_train, y_train, x_Zero, alpha=0.05)
+    results.append([lower_bound, prediction, upper_bound])
+    i+=1
+
+for i in range(len(results)):
+    print("lower_bound:",results[i][0],"prediction:", results[i][1], "upper_bound:", results[i][2])
