@@ -153,14 +153,20 @@ def important_data(data, list_of_important_features):
     data_ = data[list_of_important_features]
     return data_
 
+#resampling 5 minutes 
 
-def resample(data, rate='360S'):
+def resample(data, rate='300S'):
     resampled_data= data.resample(rate).mean() #TODO maybe the dot in data_. will cause problems
     return resampled_data
 
 
 def resample_median(data):
-    exogenous_data = data.resample('360S').median()
+    exogenous_data = data.resample('300S').median()
+    return exogenous_data
+
+
+def resample_quantile(data):
+    exogenous_data = data.resample('300S').quantile(q=0.8)
     return exogenous_data
 
 

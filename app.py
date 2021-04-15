@@ -3,6 +3,7 @@ from os import path
 from datetime import datetime
 from threading import Thread 
 from morphemic.dataset import DatasetMaker 
+from main import Train, MorphemicModel
 
 translator_command_queue_name = os.environ.get("TRANSLATOR_QUEUE_NAME","translator_command")
 translator_event_queue_name = os.environ.get("TRANSLATOR_QUEUE_NAME","translator_event")
@@ -16,7 +17,8 @@ activemq_port = int(os.getenv("ACTIVEMQ_PORT","61613"))
 datasets_path = os.environ.get("DATASET_PATH","./datasets")
 ml_model_path = os.environ.get("ML_MODEL_PATH","./models_trained")
 prediction_tolerance = os.environ.get("PREDICTION_TOLERANCE","85")
-horizons = [60000, 120000, 300000, 600000, 1200000] #in ms [1m, 2m, 5m, 10m, 20m]
+forecasting_method_name = os.environ.get("FORECASTING_METHOD_NAME","cnn")
+horizons = [2, 3, 4] # [10m,15m, 20m] because the resample rate is 5m
 #/////////////////////////////////////////////////////////////////////////////////
 influxdb_hostname = os.environ.get("INFLUXDB_HOSTNAME","localhost")
 influxdb_port = int(os.environ.get("INFLUXDB_PORT","8086"))
@@ -25,6 +27,7 @@ influxdb_password = os.environ.get("INFLUXDB_PASSWORD","password")
 influxdb_dbname = os.environ.get("INFLUXDB_DBNAME","morphemic")
 influxdb_org = os.environ.get("INFLUXDB_ORG","morphemic")
 #//////////////////////////////////////////////////////////////////////////////////
+_time_column_name = 'time'
 
 class Predictor():
     def __init__(self):
@@ -120,46 +123,6 @@ class Publisher(Thread):
             print(e)
             self.connect()
             self.send()
-            
-class Model():
-    def __init__(self, application, target, provider, cloud, level, metrics):
-        self.application = application
-        self.target = target 
-        self.provider = provider
-        self.cloud = cloud 
-        self.level = level 
-        self.dataset_creation_time = None 
-        self.dataset_url = None 
-        self.ml_model_status = 'NotExist'
-        self.metrics = metrics 
-        self.lowest_prediction_probability = 100
-
-    def getLowestPredictionProbability(self):
-        return self.lowest_prediction_probability
-    def setLowestPredictionProbability(self,lowest_probability):
-        self.lowest_prediction_probability = lowest_probability
-    def getMetrics(self):
-        return self.metrics
-    def setMLModelStatus(self, status):
-        self.ml_model_status = status 
-    def getMLModelStatus(self):
-        return self.ml_model_status
-    def setDatasetUrl(self, url):
-        self.dataset_url = url 
-    def setDatasetCreationTime(self,_time):
-        self.dataset_creation_time = _time 
-    def getDatasetCreationTime(self):
-        return self.dataset_creation_time
-    def getApplication(self):
-        return self.application
-    def getTarget(self):
-        return self.target 
-    def getProvider(self):
-        return self.provider
-    def getCloud(self):
-        return self.cloud 
-    def getLevel(self):
-        return self.level 
    
 
 class ForecastingManager():
@@ -182,7 +145,7 @@ class ForecastingManager():
 
     def createModel(self, application, refersTo, provider, cloud, level, metrics):
         if not application in self.applications:
-            model = Model(application, refersTo, provider, cloud, level, metrics)
+            model = MorphemicModel(application, refersTo, provider, cloud, level, metrics)
             self.applications[application] = model 
             return True 
         else:
@@ -219,6 +182,9 @@ class ForecastingManager():
                 model.setDatasetUrl(response['url'])
                 model.setDatasetCreationTime(time.time())
                 #start training ml (application, url, metrics)
+                metrics = model.getMetrics()
+                trainer = Train(application, metrics, _time_column_name, response['url'], horizons)
+                trainer.prepareTraining()
                 model.setMLModelStatus('started')
             except Exception as e:
                 print("An error occured while creating the dataset for the application {0}".format(application))
@@ -245,6 +211,10 @@ class ForecastingManager():
         self.publisher.setParameters(message, orchestrator_queue_name)
         self.publisher.send()
 
+    def publishTrainingCompleted(self, model):
+        metrics = model.getMetrics()
+
+
     def predict(self,application,model):
         metrics = model.getMetrics()
         predictor = Predictor(application, metrics, horizons)
@@ -263,8 +233,8 @@ class ForecastingManager():
         model.setLowestPredictionProbability(lowest_probability)
 
     def checkTrainStatus(self, application, model):
-        if path.exists(ml_model_path+"/models.obj"):
-            models_register = pickle.load(open(ml_model_path+"/models.obj", 'rb'))
+        if path.exists(ml_model_path+"/morphemic_models.obj"):
+            models_register = pickle.load(open(ml_model_path+"/morphemic_models.obj", 'rb'))
             if application in models_register:
                 if models_register["application"]["status"] != model.getMLModelStatus():
                     model.setMLModelStatus(models_register["application"]["status"])
@@ -287,7 +257,8 @@ class ForecastingManager():
                     if model.getMLModelStatus() == 'NotExist' or model.getLowestPredictionProbability() < prediction_tolerance:
                         self.trainModel(application,"general")
                     elif model.getMLModelStatus() == 'Ready':
-                        self.predict(application,model)
+                        self.publishTrainingCompleted(model)
+                        #self.predict(application,model)
                     else:
                         self.checkTrainStatus(application, model)
             time.sleep(60)

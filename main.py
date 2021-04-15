@@ -1,5 +1,5 @@
 from pre_processing.preprocessing import load_data, percent_missing, datetime_conversion
-from pre_processing.preprocessing import important_data, resample, resample_median, missing_data_handling
+from pre_processing.preprocessing import important_data, resample, resample_median, missing_data_handling, resample_quantile
 from pre_processing.Data_transformation import reshape_data_single_lag, series_to_supervised, \
     prediction_and_score_for_CNN
 from models.ML_models import LSTM_model, CNN_model
@@ -105,6 +105,45 @@ class Predictor():
         x_input = new_sample.drop(self.target)
         yhat = predictor.predict(x_input, verbose=2)
 
+class MorphemicModel():
+    def __init__(self, application, target, provider, cloud, level, metrics):
+        self.application = application
+        self.target = target 
+        self.provider = provider
+        self.cloud = cloud 
+        self.level = level 
+        self.dataset_creation_time = None 
+        self.dataset_url = None 
+        self.ml_model_status = 'NotExist'
+        self.metrics = metrics 
+        self.lowest_prediction_probability = 100
+
+    def getLowestPredictionProbability(self):
+        return self.lowest_prediction_probability
+    def setLowestPredictionProbability(self,lowest_probability):
+        self.lowest_prediction_probability = lowest_probability
+    def getMetrics(self):
+        return self.metrics
+    def setMLModelStatus(self, status):
+        self.ml_model_status = status 
+    def getMLModelStatus(self):
+        return self.ml_model_status
+    def setDatasetUrl(self, url):
+        self.dataset_url = url 
+    def setDatasetCreationTime(self,_time):
+        self.dataset_creation_time = _time 
+    def getDatasetCreationTime(self):
+        return self.dataset_creation_time
+    def getApplication(self):
+        return self.application
+    def getTarget(self):
+        return self.target 
+    def getProvider(self):
+        return self.provider
+    def getCloud(self):
+        return self.cloud 
+    def getLevel(self):
+        return self.level 
 
 class Model():
     def __init__(self, application, target, horizon):
@@ -172,7 +211,7 @@ class Train():
         for horizon in self.horizons:
             for metric in self.metrics:
                 model = Model(self.application, metric, horizon)
-                response = self.train(metric)
+                response = self.train(metric, horizon)
                 #////////////////////////////////////////////////
                 model.setUrlDataset(self.url_dataset)
                 model.setFeatures(self.metrics)
@@ -217,7 +256,7 @@ class Train():
         self.metrics.append(target) #we need the target as last element of the list metrics
         #///////////////////////////////////////////////////////////////////////////////////
         data = important_data(data, self.metrics)
-        data = resample(data)
+        data = resample_quantile(data)
         data = Min_max_scal(data)
         X_train, y_train, X_test,y_test = split_sequences(data, n_steps=horizon)
         model = CNN_model(n_steps=horizon, n_features=len(self.metrics)-1, X=X_train, y=y_train, val_x=X_test,  val_y=y_test)
