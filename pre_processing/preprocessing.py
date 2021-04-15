@@ -4,6 +4,7 @@ import os
 
 dataset_folder = "/home/jean-didier/Projects/morphemic/time-series-data/connected_consumer"
 #dataset_folder = "/media/giwrikas/DATA/Morphemic_datasets"
+#dataset_folder = "D:\\Morphemic_datasets\\"
 
 def get_all_files():
     _files = []
