@@ -9,10 +9,10 @@ translator_command_queue_name = os.environ.get("TRANSLATOR_QUEUE_NAME","translat
 translator_event_queue_name = os.environ.get("TRANSLATOR_QUEUE_NAME","translator_event")
 orchestrator_queue_name = os.environ.get("ORCHESTRATOR_QUEUE_NAME","orchestrator")
 #/////////////////////////////////////////////////////////////////////////////////
-activemq_username = os.getenv("ACTIVEMQ_USER","aaa") 
-activemq_password = os.getenv("ACTIVEMQ_PASSWORD","111") 
-activemq_hostname = os.getenv("ACTIVEMQ_HOST","localhost")
-activemq_port = int(os.getenv("ACTIVEMQ_PORT","61613")) 
+activemq_username = os.environ.get("ACTIVEMQ_USER","aaa") 
+activemq_password = os.environ.get("ACTIVEMQ_PASSWORD","111") 
+activemq_hostname = os.environ.get("ACTIVEMQ_HOST","localhost")
+activemq_port = int(os.environ.get("ACTIVEMQ_PORT","61613")) 
 #/////////////////////////////////////////////////////////////////////////////////
 datasets_path = os.environ.get("DATASET_PATH","./datasets")
 ml_model_path = os.environ.get("ML_MODEL_PATH","./models_trained")
@@ -249,7 +249,7 @@ class ForecastingManager():
         self.consumer_manager = ConsumersManager(list_queues,list_handlers)
         self.consumer_manager.connect()
         while True:
-            if list(self.applications.keys()) > 0:
+            if len(list(self.applications.keys())) > 0:
                 for application, model in self.applications.items():
                     """
                     We train the model if it doesn't exist or if the prediction precision is very low
@@ -264,4 +264,6 @@ class ForecastingManager():
             time.sleep(60)
                     
         
-
+if __name__ == "__main__":
+    app = ForecastingManager()
+    app.run()
