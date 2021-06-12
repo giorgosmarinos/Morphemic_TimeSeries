@@ -117,12 +117,15 @@ def put_as_first_column(data,column_of_interest):
 	data = data.pop(column_of_interest)
 	return data
 
+def Min_max_scal_inverse(scaler, data):
+	return scaler.inverse_transform(data)
+
 def Min_max_scal(data):
 	array = data.values
 	values_ = array.astype('float32')
 	scaler = MinMaxScaler(feature_range=(-1, 1))
 	scaled = scaler.fit_transform(values_)
-	return scaled
+	return scaled, scaler
 
 
 def predictions_and_scores(model, test_X,test_y):
@@ -161,8 +164,24 @@ def split_sequences(sequences, n_steps):
 	X_train, X_test, y_train, y_test = train_test_split(np.array(X), np.array(y), test_size=0.33, random_state=42)
 	return array(X_train), array(y_train), array(X_test), array(y_test)
 
+#multivariate, multisteps
+def split_sequences_multi_steps(sequences, n_steps_in, n_steps_out):
+	X, y = list(), list()
+	for i in range(len(sequences)):
+		# find the end of this pattern
+		end_ix = i + n_steps_in
+		out_end_ix = end_ix + n_steps_out-1
+		# check if we are beyond the dataset
+		if out_end_ix > len(sequences):
+			break
+		# gather input and output parts of the pattern
+		seq_x, seq_y = sequences[i:end_ix, :-1], sequences[end_ix-1:out_end_ix, -1]
+		X.append(seq_x)
+		y.append(seq_y)
+	X_train, X_test, y_train, y_test = train_test_split(np.array(X), np.array(y), test_size=0.33, random_state=42)
+	return array(X_train), array(y_train), array(X_test), array(y_test)
 
-def prediction_and_score_for_CNN(n_steps,n_features, x_input, model,test_y ):
+def prediction_and_score_for_CNN(n_steps,n_features, x_input, model,test_y):
 	#x_input = x_input.reshape((1, n_steps, n_features))
 	yhat = model.predict(x_input, verbose=2)
 	# calculate RMSE and R2_score

@@ -2,18 +2,21 @@ from pre_processing.preprocessing import load_data, percent_missing, datetime_co
 from pre_processing.preprocessing import important_data, resample, resample_median, missing_data_handling, resample_quantile
 from pre_processing.Data_transformation import reshape_data_single_lag, series_to_supervised, \
     prediction_and_score_for_CNN
-from models.ML_models import LSTM_model, CNN_model
+from models.ML_models import LSTM_model, CNN_model, CNN_model_multi_steps
 from plots.plots import plot_train_test_loss
-from pre_processing.Data_transformation import predictions_and_scores, Min_max_scal
-from pre_processing.Data_transformation import split_sequences
+from pre_processing.Data_transformation import predictions_and_scores, Min_max_scal, Min_max_scal_inverse
+from pre_processing.Data_transformation import split_sequences, split_sequences_multi_steps
 import matplotlib.pyplot as plt
 import pandas as pd
-import os, time, pickle, json 
+import numpy as np 
+import os, time, pickle, json, psutil 
 from os import path 
+from tensorflow import keras
 
 
 #///////////////////////////////////////////////////////////////////////////////
 ml_model_path = os.environ.get("ML_MODEL_PATH","./models_trained")
+ml_model = os.environ.get("ML_MODEL_PATH","./models")
 #///////////////////////////////////////////////////////////////////////////////
 
 #metrics = ['performance','request_rate', 'cpu_usage', 'memory','served_request']
@@ -64,11 +67,11 @@ model.summary()
 """
 
 class Predictor():
-    def __init__(self, application, target, horizon, features):
+    def __init__(self, application, target, steps, features):
         self.application = application
         self.target = target
-        self.horizon = horizon
-        self.features = features
+        self.steps = steps
+        self.feature_dict = features
         self.applications_model = None 
         self.loadModel()
 
@@ -85,30 +88,51 @@ class Predictor():
             self.applications_model = pickle.load(open(ml_model_path+"/models.obj", 'rb'))
             print("Application model found and loaded")
 
-    def makeKey(self, application, target, horizon):
-        return "{0}_{1}_{2}".format(application, target, horizon)
+    def makeKey(self, application, target):
+        return "{0}_{1}".format(application, target)
 
     def predict(self):
-        key = self.makeKey(self.application, self.target, self.horizon)
-        if not key in self.application_model:
+        key = self.makeKey(self.application, self.target)
+        if not key in self.applications_model:
             return {'status': False, 'message': 'Model not found', 'data': None}
-        model = self.applications_model[key]
+        model_metadata = self.applications_model[key]
+        path = model_metadata["model_url"]
+        print("model path : "+ path)
         #data preparation
-        data = self.loadDataset(model.getUrlDataset())
-        data.loc[0] = list(self.feature.values())
-        data = data.round(decimals=2)
-        data = missing_data_handling(data, rolling_mean=True)
-        percent_missing(data)
-        
-        data = important_data(data, model.getFeatures())
-        data = Min_max_scal(data)
-        new_sample = data.iloc[[0]]
-        predictor = model.getMLModel()
-        x_input = new_sample.drop(self.target)
-        yhat = predictor.predict(x_input, verbose=2)
+        data = self.loadDataset(model_metadata["dataset_url"])
+        #if data.empty:
+        #    return {'status': False, 'message': 'dataset empty', 'data': None}
+        data = data.append(self.feature_dict, ignore_index=True)
+        data['memory'] = data['memory']/1000000
+        data = data.drop(columns=[self.target, 'time'])
+        #data = data.round(decimals=2)
+        #data = missing_data_handling(data, rolling_mean=True)
+        #percent_missing(data)
+        #important_features = model_metadata["features"]
+        #important_features.remove(self.target)
+        #data = important_data(data, important_features)
+        important_feature = list(self.feature_dict.keys())
+        important_feature.remove(self.target)
+        important_feature.remove('time')
+        print(important_feature)
+        #data, scaler = Min_max_scal(data)
+        print(data)
+        data = data.values
+        new_sample = data[-self.steps:]
+        #new_sample = np.array(self.feature_dict)
+        new_sample = new_sample.reshape((1, self.steps, len(important_feature)))
+
+        #new_sample = list()
+        #new_sample.append(data)
+        #new_sample = np.array(new_sample)
+        predictor = keras.models.load_model(path)
+        y_predict = predictor.predict(new_sample, verbose=2)
+        return y_predict[0].astype('int')
+        #y_predict = np.repeat(y_predict, len(important_features)).reshape((-1, len(important_features)))
+        #return Min_max_scal_inverse(scaler, y_predict)[-1][-1] #the target is in the last position
 
 class MorphemicModel():
-    def __init__(self, application, target, provider, cloud, level, metrics):
+    def __init__(self, application, target, provider, cloud, level, metric, publish_rate):
         self.application = application
         self.target = target 
         self.provider = provider
@@ -117,21 +141,28 @@ class MorphemicModel():
         self.dataset_creation_time = None 
         self.dataset_url = None 
         self.ml_model_status = 'NotExist'
-        self.metrics = metrics 
+        self.metric = metric
         self.lowest_prediction_probability = 100
+        self.publish_rate = publish_rate
+        self.prediction_horizon = 30 #30 second 
+        self.training_data = None 
+        self.features = None 
+        self.steps = None 
 
     def getLowestPredictionProbability(self):
         return self.lowest_prediction_probability
     def setLowestPredictionProbability(self,lowest_probability):
         self.lowest_prediction_probability = lowest_probability
-    def getMetrics(self):
-        return self.metrics
+    def getMetric(self):
+        return self.metric
     def setMLModelStatus(self, status):
         self.ml_model_status = status 
     def getMLModelStatus(self):
         return self.ml_model_status
     def setDatasetUrl(self, url):
         self.dataset_url = url 
+    def getDatasetUrl(self):
+        return self.dataset_url
     def setDatasetCreationTime(self,_time):
         self.dataset_creation_time = _time 
     def getDatasetCreationTime(self):
@@ -146,17 +177,38 @@ class MorphemicModel():
         return self.cloud 
     def getLevel(self):
         return self.level 
+    def getPublishRate(self):
+        self.publish_rate
+    def getPredictionHorizon(self):
+        return self.prediction_horizon
+    def setPredictionHorizon(self, prediction_horizon):
+        self.prediction_horizon = prediction_horizon
+    def getTrainingData(self):
+        return self.training_data 
+    def setTrainingData(self, training_data):
+        self.training_data = training_data 
+    def setFeatures(self, features):
+        self.features = features
+    def getFeatures(self):
+        return self.features
+    def getsteps(self):
+        return self.steps
+    def setsteps(self, steps):
+        self.steps = steps 
 
 class Model():
-    def __init__(self, application, target, horizon):
+    def __init__(self, application, target, steps):
         self.application = application
         self.target = target
-        self.horizon = horizon
+        self.steps = steps
         self.status = None 
         self.ml_model = None 
         self.features = None 
         self.training_data = None 
         self.url_dataset = None 
+        self.ml_path = None 
+        self.dataset_characteristics = None 
+        
     def setStatus(self, status):
         self.status = status 
     def getStatus(self):
@@ -165,28 +217,38 @@ class Model():
         return self.ml_model 
     def setMLModel(self, model):
         self.ml_model = model 
+    def setMLModelPath(self, path):
+        self.ml_path = path 
+    def getMLPath(self):
+        return self.ml_path
     def setFeatures(self, features):
         self.features = features
     def getFeatures(self):
         return self.features
     def setTrainingData(self,_data):
-        self.training_data = data 
+        self.training_data = _data 
     def getTrainingData(self):
         return self.training_data
     def setUrlDataset(self, url):
         self.url_dataset = url
     def getUrlDataset(self):
         return self.url_dataset
+    def getDatasetCharacteristics(self):
+        return self.dataset_characteristics
+    def setDatasetCharacteristics(self, properties):
+        self.dataset_characteristics = properties
 
 class Train():
-    def __init__(self, application, metrics, _time_column_name, url_dataset, horizons):
+    def __init__(self, application, metric, _time_column_name, url_dataset, number_of_forward_forecasting, steps, prediction_horizon):
         self.application = application
-        self.metrics = metrics 
+        self.metric = metric 
         self.features = None 
         self.time_column_name = _time_column_name
-        self.applications_model = None 
-        self.horizons = horizons
+        self.applications_model = {} 
         self.url_dataset = url_dataset
+        self.number_of_foreward_forecating = number_of_forward_forecasting
+        self.steps = steps
+        self.prediction_horizon = prediction_horizon
         self.loadModel()
 
     def loadModel(self):
@@ -195,8 +257,11 @@ class Train():
             print("Application model found and loaded")
 
     def saveModel(self):
-        pickle.dump(self.applications_model, open(ml_model_path+"/models.obj", 'wb'))
-        print("Models updated")
+        try:
+            pickle.dump(self.applications_model, open(ml_model_path+"/models.obj", 'wb'))
+            print("Models updated")
+        except Exception as e:
+            print(e)
 
     def loadDataset(self):
         try:
@@ -204,35 +269,51 @@ class Train():
         except Exception as e:
             print("Could not load the dataset")
             print(e)
-            return None 
+            return pd.DataFrame()
 
-    def makeKey(self, application, target, horizon):
-        return "{0}_{1}_{2}".format(application, target, horizon)
+    def makeKey(self, application, target):
+        return "{0}_{1}".format(application, target)
+
+    def canBeTrained(self):
+        for key in self.applications_model:
+            model = self.applications_model[key]
+            if self.application == model['application'] and self.metric == model['target']:
+                return False 
+        return True 
 
     def prepareTraining(self):
-        for horizon in self.horizons:
-            for metric in self.metrics:
-                model = Model(self.application, metric, horizon)
-                response = self.train(metric, horizon)
-                #////////////////////////////////////////////////
-                model.setUrlDataset(self.url_dataset)
-                model.setFeatures(self.metrics)
-                if not response["status"]:
-                    model.setStatus("Failed")
-                else:
-                    model.setStatus("Ready")
-                    model.setTrainingData(response['training'])
-                    model.setMLModel(response['model'])
-                key = self.makeKey(self.application, metric, horizon)
-                self.applications_model[key] = model 
-        self.saveModel()
+        result = []
+        if not self.canBeTrained():
+            print("Model for the metric = {0}, application = {1}, exists".format(self.metric, self.application))
+            result.append(self.applications_model[self.makeKey(self.application, self.metric)])
+            return result 
+        model = Model(self.application, self.metric, self.steps)
+        response = self.train(self.metric)
+        print(response)
+        #////////////////////////////////////////////////
+        model.setUrlDataset(self.url_dataset)
+        key = None 
+        if not response["status"]:
+            model.setStatus("Failed")
+        else:
+            key = self.makeKey(self.application, self.metric)
+            model.setStatus("Ready")
+            model.setTrainingData(response['training'])
+            model.setFeatures(response['training']['features'])
+            result.append(response['training'])
+            self.applications_model[key] = {"dataset_url":self.url_dataset,"features":response["training"]["features"],"application": self.application, "target": self.metric, "model_url": response['training']['model_url']}
+            self.saveModel() 
+        return result 
 
     def computePeriodicity(self, data):
         pass 
 
-    def train(self, target, horizon=3):
+    def train(self, target):
+        print("Target metric = {0}".format(target))
+        print("Sampling rate : {0}".format(self.prediction_horizon))
         data = self.loadDataset()
-        if data == None:
+        data['memory'] = data['memory']/1000000
+        if len(data) == 0:
             return {"status": False, "message": "An error occured while loading the dataset", "data": None}
 
         self.features = list(data.columns.values)
@@ -242,30 +323,39 @@ class Train():
         if not self.time_column_name in self.features:
             return {"status": False, "message": "time field ({0}) not found in dataset".format(self.time_column_name), "data": None}
 
-        for metric in self.metrics:
-            if not metric in self.features:
-                return {"status": False, "message": "Metric field ({0}) not found in dataset".format(metric), "data": None}
+        if not self.metric in self.features:
+            return {"status": False, "message": "Metric field ({0}) not found in dataset".format(metric), "data": None}
         
-        #Training 
-
+        self.features.remove(target)
+        self.features.append(target)
+        self.features.remove(self.time_column_name)
+        ###########
+        _start = time.time()
         data = data.round(decimals=2)
         data = missing_data_handling(data, rolling_mean=True)
+        print(data)
         percent_missing(data)
+
         data = datetime_conversion(data, self.time_column_name)
-        #///////////////////////////////////////////////////////////////////////////////////
-        index = self.metrics.index(target)
-        self.metrics.pop(index)
-        self.metrics.append(target) #we need the target as last element of the list metrics
-        #///////////////////////////////////////////////////////////////////////////////////
-        data = important_data(data, self.metrics)
-        data = resample_quantile(data)
-        data = Min_max_scal(data)
-        X_train, y_train, X_test,y_test = split_sequences(data, n_steps=horizon)
-        model = CNN_model(n_steps=horizon, n_features=len(self.metrics)-1, X=X_train, y=y_train, val_x=X_test,  val_y=y_test)
-        #plot_train_test_loss(model)
-        prediction_and_score_for_CNN(n_steps = horizon,n_features=len(self.metrics)-1, x_input=X_test, model=model,test_y=y_test)
-        print(model.summary())
-        return {"status": True, "message": "", "training": model.summary(), "model": model}
+        print(data)
+        data = important_data(data, self.features)
+        print(data)
+        sampling_rate = '{0}S'.format(self.prediction_horizon)
+        data = resample_quantile(data, sampling_rate)
+        print(data)
+        data, scaler = Min_max_scal(data)
+        #X_train, y_train, X_test,y_test = split_sequences(data, n_steps=steps)
+        X_train, y_train, X_test,y_test = split_sequences_multi_steps(data, n_steps_in=self.steps, n_steps_out=self.number_of_foreward_forecating)
+        model = CNN_model_multi_steps(n_steps=self.steps, n_features=len(self.features)-1, X=X_train, y=y_train, val_x=X_test,  val_y=y_test, n_steps_out=self.number_of_foreward_forecating)
+        prediction_and_score_for_CNN(n_steps = self.steps,n_features=len(self.features)-1, x_input=X_test, model=model,test_y=y_test)
+        _duration = int(time.time() - _start)
+        model.summary()
+        model_url = ml_model + "/{0}".format(target)
+        model.save(model_url)
+        process = psutil.Process(os.getpid())
+        memory = int(process.memory_info().rss/1000000)
+        cpu_usage = psutil.cpu_percent()
+        return {"status": True, "message": "success", "training":{"training_duration": _duration,"memory":memory, "cpu_usage": cpu_usage, "algorith": "cnn", "model_url": model_url,"features": self.features, "target": target}}
 
         
             

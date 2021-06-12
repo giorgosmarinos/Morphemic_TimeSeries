@@ -36,3 +36,16 @@ def CNN_model(n_steps, n_features, X, y, val_x, val_y):
     # fit model
     model.fit(X, y, epochs=100, verbose=2, validation_data=(val_x, val_y))
     return model
+
+def CNN_model_multi_steps(n_steps, n_features, X, y, val_x, val_y, n_steps_out):
+    # define model
+    model = Sequential()
+    model.add(Conv1D(filters=64, kernel_size=2, activation='relu', input_shape=(n_steps, n_features)))
+    model.add(MaxPooling1D(pool_size=2))
+    model.add(Flatten())
+    model.add(Dense(50, activation='relu'))
+    model.add(Dense(n_steps_out))
+    model.compile(optimizer='adam', loss='mse')
+    # fit model
+    model.fit(X, y, epochs=200, verbose=1, validation_data=(val_x, val_y))
+    return model

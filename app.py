@@ -3,22 +3,27 @@ from os import path
 from datetime import datetime
 from threading import Thread 
 from morphemic.dataset import DatasetMaker 
-from main import Train, MorphemicModel
+from main import Train, MorphemicModel, Predictor
+import random 
+from amq_client.MorphemicConnection import Connection
+from amq_client.MorphemicListener import MorphemicListener
 
-translator_command_queue_name = os.environ.get("TRANSLATOR_QUEUE_NAME","translator_command")
-translator_event_queue_name = os.environ.get("TRANSLATOR_QUEUE_NAME","translator_event")
-orchestrator_queue_name = os.environ.get("ORCHESTRATOR_QUEUE_NAME","orchestrator")
+translator_command_queue_name = os.environ.get("TRANSLATOR_QUEUE_NAME","topic/translator_command")
+translator_event_queue_name = os.environ.get("TRANSLATOR_QUEUE_NAME","/topic/translator_event")
+orchestrator_queue_name = os.environ.get("ORCHESTRATOR_QUEUE_NAME","/topic/orchestrator")
 #/////////////////////////////////////////////////////////////////////////////////
-activemq_username = os.environ.get("ACTIVEMQ_USER","aaa") 
-activemq_password = os.environ.get("ACTIVEMQ_PASSWORD","111") 
-activemq_hostname = os.environ.get("ACTIVEMQ_HOST","localhost")
-activemq_port = int(os.environ.get("ACTIVEMQ_PORT","61613")) 
+activemq_username = os.environ.get("ACTIVEMQ_USER","morphemic") 
+activemq_password = os.environ.get("ACTIVEMQ_PASSWORD","morphemic") 
+activemq_hostname = os.environ.get("ACTIVEMQ_HOST","147.102.17.76")
+activemq_port = int(os.environ.get("ACTIVEMQ_PORT","61610")) 
 #/////////////////////////////////////////////////////////////////////////////////
 datasets_path = os.environ.get("DATASET_PATH","./datasets")
 ml_model_path = os.environ.get("ML_MODEL_PATH","./models_trained")
 prediction_tolerance = os.environ.get("PREDICTION_TOLERANCE","85")
 forecasting_method_name = os.environ.get("FORECASTING_METHOD_NAME","cnn")
-horizons = [2, 3, 4] # [10m,15m, 20m] because the resample rate is 5m
+#/////////////////////////////////////////////////////////////////////////////////
+number_of_forward_forecasting = 4
+steps = 128
 #/////////////////////////////////////////////////////////////////////////////////
 influxdb_hostname = os.environ.get("INFLUXDB_HOSTNAME","localhost")
 influxdb_port = int(os.environ.get("INFLUXDB_PORT","8086"))
@@ -26,12 +31,12 @@ influxdb_username = os.environ.get("INFLUXDB_USERNAME","morphemic")
 influxdb_password = os.environ.get("INFLUXDB_PASSWORD","password")
 influxdb_dbname = os.environ.get("INFLUXDB_DBNAME","morphemic")
 influxdb_org = os.environ.get("INFLUXDB_ORG","morphemic")
+start_forecasting_queue = os.environ.get("START_FORECASTING","/topic/start_forecasting.cnn")
+metric_to_predict_queue = os.environ.get("METRIC_TO_PREDICT","/topic/metrics_to_predict")
 #//////////////////////////////////////////////////////////////////////////////////
 _time_column_name = 'time'
+_new_epoch = False 
 
-class Predictor():
-    def __init__(self):
-        pass 
 
 class Listener(object):
     def __init__(self, conn,handler):
@@ -43,8 +48,8 @@ class Listener(object):
         _time_str = now.strftime("%m/%d/%Y, %H:%M:%S")
         print('received an error {0} at {1}'.format(message, _time_str))
 
-    def on_message(self, headers, message):
-        self.handler(message)
+    def on_message(self, frame):
+        self.handler(frame.body)
 
 class Consumer(Thread):
     def __init__(self, handler, queue):
@@ -57,8 +62,8 @@ class Consumer(Thread):
         while not connected:
             try:
                 print('Subscribe to the topic {0}'.format(self.queue))
-                conn = stomp.Connection(host_and_ports = [(activemq_hostname, activemq_port)])
-                conn.connect(login=activemq_username,passcode=activemq_password)
+                conn = Connection(username=activemq_username, password=activemq_password, host=activemq_hostname,port=61610, debug=True)
+                conn.connect()
                 conn.set_listener('', Listener(conn, self.handler))
                 conn.subscribe(destination=self.queue, id=1, ack='auto')
                 connected = True 
@@ -98,14 +103,14 @@ class Publisher(Thread):
     def run(self):
         self.connect()
         while True:
-            time.sleep(10)
+            time.sleep(2)
 
     def connect(self):
         while True:
             try:
                 print('The publisher tries to connect to ActiveMQ broker')
-                self.client = stomp.Connection(host_and_ports = [(activemq_hostname, activemq_port)])
-                self.client.connect(login=activemq_username,passcode=activemq_password)
+                self.client = Connection(username=activemq_username, password=activemq_password, host=activemq_hostname,port=61610, debug=False)
+                self.client.connect()
                 print("connection established")
                 return True 
             except:
@@ -116,8 +121,8 @@ class Publisher(Thread):
             print("Message or queue is None")
             return False 
         try:
-            self.client.send(body=json.dumps(self.message), destination=self.message, persistent='false')
-            print("Messages pushed to activemq")
+            #self.client.send(body=json.dumps(self.message), destination=self.queue, persistent='false', auto_content_length=False, content_type="application/json")
+            self.client.send_to_topic(self.queue, self.message)
             return True 
         except Exception as e:
             print(e)
@@ -130,6 +135,7 @@ class ForecastingManager():
         self.publisher = None 
         self.consumer_manager = None 
         self.applications = {} 
+        self.loadMorphemicModel()
 
     def prepareDataset(self,application):
         configs = {'hostname': influxdb_hostname, 
@@ -143,19 +149,113 @@ class ForecastingManager():
         response = datasetmaker.make()
         return response 
 
-    def createModel(self, application, refersTo, provider, cloud, level, metrics):
-        if not application in self.applications:
-            model = MorphemicModel(application, refersTo, provider, cloud, level, metrics)
-            self.applications[application] = model 
+    def createModel(self, application, refersTo, provider, cloud, level, metric, publish_rate):
+        if not application+"_"+metric in self.applications:
+            model = MorphemicModel(application, refersTo, provider, cloud, level, metric, publish_rate)
+            self.applications[application+"_"+metric] = model 
+            print("Model created for the application = {0} with metric = {1}".format(application, metric))
             return True 
         else:
             print('Application already registered')
 
-    def getModel(self,application):
-        if application in self.applications:
-            return self.applications[application]
+    def getModel(self,application, metric):
+        if application+'_'+metric in self.applications:
+            return self.applications[application+"_"+metric]
         else:
             return None 
+
+    def startSendPrediction(self, data):
+        global _new_epoch
+        _json = json.loads(data)
+        metrics = _json["metrics"]
+        metrics.append("memory")
+        epoch_start = _json["epoch_start"]
+        number_forward_predictions = _json["number_of_forward_predictions"]
+        prediction_horizon = _json["prediction_horizon"]
+        application = "demo"
+        sleeping = 0
+        _new_epoch = False 
+        _now = epoch_start 
+        while True:
+            _start = time.time()
+            index = 1
+            while index <= number_forward_predictions:
+                horizon = 1*30
+                future = horizon * index
+                metricValue = random.randint(20,100)
+                high_confidence = metricValue + random.randint(2,5)
+                low_confidence = metricValue - random.randint(2,5)
+                prediction_time = epoch_start + future
+                message = {"metricValue": metricValue, "level": 1, "timestamp": int(time.time()), "probability": 0.8,"confidence_interval": [low_confidence,high_confidence], "predictionTime": prediction_time, "refersTo": "demo", "cloud": "aws", "provider": "provider"}
+                for metric in metrics:
+                    self.publisher.setParameters(message, "intermediate_prediction.cnn.{0}".format(metric))
+                    self.publisher.send()
+                    print(message, metric)
+                index +=1
+            sleeping += 30
+            time.sleep(horizon)
+            epoch_start = prediction_time
+                
+
+    def startForecasting(self, data):
+        global _new_epoch
+        _new_epoch = True 
+        print("Start forecasting")
+        print(data)
+        time.sleep(30)
+        self.startSendPrediction(data)
+        """
+            model = self.getModel(application)
+            if model == None:
+                print("Model for the application = {0} not found".format(application))
+            else:
+                #served_request,request_rate,response_time,performance,cpu_usage,memory
+                while True:
+                    features = {"time":1602543588,"served_request":1906,"request_rate":323,"response_time":645.29249487994,"performance":0.590429925999507,"cpu_usage":26.4,"memory":65351680}
+                    self.predict(application, model, metrics, features)
+                    time.sleep(10)
+        except Exception as e:
+            print("Could not decode start forcasting data")
+            print(e)
+            print(data) """
+        #"{"metrics":["AvgResponseTime"],"timestamp":1623242615043,"epoch_start":1623242815041,"number_of_forward_predictions":8,"prediction_horizon":300}
+    def simulateForcasting(self):
+        application = "default"
+        metrics = ["avgResponseTime","memory"] 
+        for metric in metrics:
+            model = self.getModel(application, metric)
+            if model == None:
+                print("Model for the application = {0}, metric = {1} not found".format(application, metric))
+            else:
+                #served_request,request_rate,response_time,performance,cpu_usage,memory
+                #features = [2110.0,426.0,673.57,0.63,31.6]
+                features = {"time":1602543588,"served_request":1900,"request_rate":300,"avgResponseTime":600,"performance":147,"cpu_usage":20,"memory":65351680}
+                response = self.predict(application, model, metric, features)
+                print(response)
+
+    def simulateMetricToPredict(self):
+        data = [
+            {"refersTo": "default", "level":3, "metric": "avgResponseTime", "publish_rate":3000},
+            {"refersTo": "default", "level":3, "metric": "memory", "publish_rate":3000}
+        ]
+        self.metricToPredict(json.dumps(data))
+
+    def metricToPredict(self, data):
+        print("Metric to predict event received")
+        try:
+            _json = json.loads(data)
+            #metrics = ["served_request","request_rate","response_time","performance","cpu_usage","memory"]
+            for group in _json:
+                application = None 
+                if not 'refersTo' in group:
+                    application = "demo"
+                else:
+                    application = group['refersTo']
+                self.createModel(application, None, "aws", "cloud", 1, group['metric'], group["publish_rate"])
+        except Exception as e:
+            print(data)
+            print("Could not decode metrics")
+            print(e)
 
     def requestDecoder(self, data):
         try:
@@ -174,23 +274,42 @@ class ForecastingManager():
             print("Could not decode JSON content")
             print(e)
 
-    def trainModel(self, application, variant):
-        if application in self.applications:
-            model = self.getModel(application)
-            try:
-                response = self.prepareDataset(application)
-                model.setDatasetUrl(response['url'])
-                model.setDatasetCreationTime(time.time())
-                #start training ml (application, url, metrics)
-                metrics = model.getMetrics()
-                trainer = Train(application, metrics, _time_column_name, response['url'], horizons)
-                trainer.prepareTraining()
-                model.setMLModelStatus('started')
-            except Exception as e:
-                print("An error occured while creating the dataset for the application {0}".format(application))
-                print(e)
-                return False 
+    def loadMorphemicModel(self):
+        if path.exists(ml_model_path+"/morphemic_models.obj"):
+            self.applications = pickle.load(open(ml_model_path+"/morphemic_models.obj", 'rb'))
+            print("======Morphemic model found and loaded=======")
+            for key, model in self.applications.items():
+                print("*******Model*******")
+                print("Application: {0}".format(model.getApplication()))
+                print("Metric: {0}".format(model.getMetric()))
+                print("*******************")
+            print("======++++++++++++++++++++++++++++++++=======")
 
+    def saveMorphemicModel(self):
+        try:
+            pickle.dump(self.applications, open(ml_model_path+"/morphemic_models.obj", 'wb'))
+            print("Morhemic Models updated")
+        except Exception as e:
+            print(e)
+
+    def trainModel(self, model):
+        #try:
+        application = model.getApplication()
+        #response = self.prepareDataset(application)
+        #model.setDatasetUrl(response['url'])
+        model.setDatasetUrl("/home/jean-didier/Projects/morphemic/Morphemic_TimeSeries/datasets/ds.csv")
+        model.setDatasetCreationTime(time.time())
+        #start training ml (application, url, metrics)
+        metric = model.getMetric()
+        trainer = Train(application, metric, _time_column_name, model.getDatasetUrl(), number_of_forward_forecasting, steps, model.getPredictionHorizon())
+        model.setMLModelStatus('started')
+        result = trainer.prepareTraining()
+        if len(result) > 0:
+            model.setMLModelStatus('Ready')
+            model.setTrainingData(result)
+            self.saveMorphemicModel()
+            self.publishTrainingCompleted(model)
+            
     def publish(self, metricValue, timestamp, probability, horizon, application, cloud, provider, level=1):
         """
             {
@@ -212,25 +331,16 @@ class ForecastingManager():
         self.publisher.send()
 
     def publishTrainingCompleted(self, model):
-        metrics = model.getMetrics()
+        data = model.getTrainingData()
+        print(data)
+        message = {"metrics": ["cpu_usage"], "forecasting_method":"cnn","timestamp": int(time.time())}
+        #print(message)
+        #self.publisher.setParameters(message, "training_models")
+        #self.publisher.send()
 
-
-    def predict(self,application,model):
-        metrics = model.getMetrics()
-        predictor = Predictor(application, metrics, horizons)
-
-        results = predictor.predict()
-        print(results)
-        lowest_probability = 100
-        for result in results:
-            probability = result['probability']
-            horizon = result['horizon']
-            value = result['value']
-            _time = time.time()
-            if result['probability'] < lowest_probability:
-                lowest_probability = result['probability']
-            self.publish(value,_time,probability,horizon,application,model.getCloud(),model.getProvider(),model.getLevel())
-        model.setLowestPredictionProbability(lowest_probability)
+    def predict(self,application,model, target, features):
+        predictor = Predictor(application, target, steps, features)
+        return predictor.predict()
 
     def checkTrainStatus(self, application, model):
         if path.exists(ml_model_path+"/morphemic_models.obj"):
@@ -244,24 +354,19 @@ class ForecastingManager():
         print("Forecasting manager started")
         self.publisher = Publisher()
         self.publisher.start()
-        list_queues = [translator_command_queue_name,translator_event_queue_name]
-        list_handlers = [self.requestDecoder, self.requestDecoder]
+        list_queues = [translator_command_queue_name,translator_event_queue_name, start_forecasting_queue, metric_to_predict_queue]
+        list_handlers = [self.requestDecoder, self.requestDecoder, self.startForecasting, self.metricToPredict]
         self.consumer_manager = ConsumersManager(list_queues,list_handlers)
         self.consumer_manager.connect()
+        
+        #self.simulateMetricToPredict()
+        time.sleep(1)
+        self.simulateForcasting()
         while True:
-            if len(list(self.applications.keys())) > 0:
-                for application, model in self.applications.items():
-                    """
-                    We train the model if it doesn't exist or if the prediction precision is very low
-                    """
-                    if model.getMLModelStatus() == 'NotExist' or model.getLowestPredictionProbability() < prediction_tolerance:
-                        self.trainModel(application,"general")
-                    elif model.getMLModelStatus() == 'Ready':
-                        self.publishTrainingCompleted(model)
-                        #self.predict(application,model)
-                    else:
-                        self.checkTrainStatus(application, model)
-            time.sleep(60)
+            for key, model in self.applications.items():
+                if model.getMLModelStatus() == "NotExist":
+                    self.trainModel(model)
+            time.sleep(10)
                     
         
 if __name__ == "__main__":

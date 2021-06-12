@@ -1,0 +1,4 @@
+predictionTime = epochStart + k*prediction_horizon
+epochStart - the same as inside start_forecasting message
+prediction_horizon - the same as inside start_forecasting message
+k - integer value 
