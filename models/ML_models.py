@@ -47,5 +47,5 @@ def CNN_model_multi_steps(n_steps, n_features, X, y, val_x, val_y, n_steps_out):
     model.add(Dense(n_steps_out))
     model.compile(optimizer='adam', loss='mse')
     # fit model
-    model.fit(X, y, epochs=200, verbose=1, validation_data=(val_x, val_y))
+    model.fit(X, y, epochs=100, verbose=1, validation_data=(val_x, val_y))
     return model

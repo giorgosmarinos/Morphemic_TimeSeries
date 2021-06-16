@@ -22,7 +22,6 @@ ml_model_path = os.environ.get("ML_MODEL_PATH","./models_trained")
 prediction_tolerance = os.environ.get("PREDICTION_TOLERANCE","85")
 forecasting_method_name = os.environ.get("FORECASTING_METHOD_NAME","cnn")
 #/////////////////////////////////////////////////////////////////////////////////
-number_of_forward_forecasting = 4
 steps = 128
 #/////////////////////////////////////////////////////////////////////////////////
 influxdb_hostname = os.environ.get("INFLUXDB_HOSTNAME","localhost")
@@ -129,12 +128,57 @@ class Publisher(Thread):
             self.connect()
             self.send()
    
+class Forecaster(Thread):
+    def __init__(self, manager, prediction_horizon, epoch_start, publisher, target, application):
+        self.manager = manager 
+        self.prediction_horizon = prediction_horizon
+        self.epoch_start = epoch_start
+        self.publisher = publisher
+        self.target = target 
+        self.application = application
+        self.features_dict = {}
+        self.stop = False 
+        super(Forecaster,self).__init__()
+
+    def getTarget(self):
+        return self.target
+
+    def setStop(self):
+        self.stop = True 
+
+    def run(self):
+        print("Forecaster started for target metric {0} ".format(self.target))
+        while True:
+            if self.stop:
+                print("Forecaster stops after having receiving new epoch start")
+                break
+            self.features = self.manager.getFeatureInput(self.application)
+            if len(self.features) == 0:
+                time.sleep(self.prediction_horizon)
+                self.epoch_start += self.prediction_horizon
+                continue
+            predictor = Predictor(self.application, self.target, steps, self.features)
+            response = predictor.predict()
+            index = 1
+            for v, prob,interval in response:
+                prediction_time = self.epoch_start + index * self.prediction_horizon
+                message = {"metricValue": v, "level": 1, "timestamp": int(time.time()), "probability": prob,"confidence_interval": interval, "predictionTime": prediction_time, "refersTo": self.application, "cloud": "aws", "provider": "provider"}
+                #self.publisher.setParameters(message, "intermediate_prediction.cnn.{0}".format(self.target))
+                #self.publisher.send()
+                print(message, self.target)
+                index +=1
+            time.sleep(self.prediction_horizon)
+            self.epoch_start += self.prediction_horizon
+
+        print("Forecaster for target : {0} stopped".format(self.target))
 
 class ForecastingManager():
     def __init__(self):
         self.publisher = None 
         self.consumer_manager = None 
         self.applications = {} 
+        self.forecasting_targets_map = {}
+        self.workers = []
         self.loadMorphemicModel()
 
     def prepareDataset(self,application):
@@ -164,74 +208,44 @@ class ForecastingManager():
         else:
             return None 
 
-    def startSendPrediction(self, data):
-        global _new_epoch
-        _json = json.loads(data)
-        metrics = _json["metrics"]
-        metrics.append("memory")
-        epoch_start = _json["epoch_start"]
-        number_forward_predictions = _json["number_of_forward_predictions"]
-        prediction_horizon = _json["prediction_horizon"]
-        application = "demo"
-        sleeping = 0
-        _new_epoch = False 
-        _now = epoch_start 
-        while True:
-            _start = time.time()
-            index = 1
-            while index <= number_forward_predictions:
-                horizon = 1*30
-                future = horizon * index
-                metricValue = random.randint(20,100)
-                high_confidence = metricValue + random.randint(2,5)
-                low_confidence = metricValue - random.randint(2,5)
-                prediction_time = epoch_start + future
-                message = {"metricValue": metricValue, "level": 1, "timestamp": int(time.time()), "probability": 0.8,"confidence_interval": [low_confidence,high_confidence], "predictionTime": prediction_time, "refersTo": "demo", "cloud": "aws", "provider": "provider"}
-                for metric in metrics:
-                    self.publisher.setParameters(message, "intermediate_prediction.cnn.{0}".format(metric))
-                    self.publisher.send()
-                    print(message, metric)
-                index +=1
-            sleeping += 30
-            time.sleep(horizon)
-            epoch_start = prediction_time
+    def getFeatureInput(self, application):
+        return [{'time':1602538628,'served_request':2110,'request_rate':426,'avgResponseTime':673.574009325832,'performance':0.626508734240462,'cpu_usage':31.6,'memory':71798784}]
                 
+    def getModelFromMetric(self, metric):
+        for key, model in self.applications.items():
+            if model.getMetric() == metric:
+                return model 
+        return None 
 
     def startForecasting(self, data):
-        global _new_epoch
-        _new_epoch = True 
-        print("Start forecasting")
-        print(data)
-        time.sleep(30)
-        self.startSendPrediction(data)
-        """
-            model = self.getModel(application)
-            if model == None:
-                print("Model for the application = {0} not found".format(application))
-            else:
-                #served_request,request_rate,response_time,performance,cpu_usage,memory
-                while True:
-                    features = {"time":1602543588,"served_request":1906,"request_rate":323,"response_time":645.29249487994,"performance":0.590429925999507,"cpu_usage":26.4,"memory":65351680}
-                    self.predict(application, model, metrics, features)
-                    time.sleep(10)
+        _json = None 
+        metrics = None 
+        epoch_start = None 
+        number_of_forward_forecasting = None 
+        prediction_horizon = None 
+        try:
+            _json = json.loads(data)
+            metrics = _json['metrics']
+            epoch_start = _json['epoch_start']
+            number_of_forward_forecasting = _json['number_of_forward_predictions']
+            prediction_horizon = _json['prediction_horizon']
+            for metric in metrics:
+                model = self.getModelFromMetric(metric)
+                if model == None:
+                    print("Model for metric: {0} does not exist".format(metric))
+                    continue
+                model.setNumberOfForwardPredictions(number_of_forward_forecasting)
+                model.setPredictionHorizon(prediction_horizon)
+                model.setEpochStart(epoch_start)
+                self.trainModel(model)
+            
         except Exception as e:
-            print("Could not decode start forcasting data")
+            print("An error occured in the start forecasting function")
             print(e)
-            print(data) """
-        #"{"metrics":["AvgResponseTime"],"timestamp":1623242615043,"epoch_start":1623242815041,"number_of_forward_predictions":8,"prediction_horizon":300}
+
     def simulateForcasting(self):
-        application = "default"
-        metrics = ["avgResponseTime","memory"] 
-        for metric in metrics:
-            model = self.getModel(application, metric)
-            if model == None:
-                print("Model for the application = {0}, metric = {1} not found".format(application, metric))
-            else:
-                #served_request,request_rate,response_time,performance,cpu_usage,memory
-                #features = [2110.0,426.0,673.57,0.63,31.6]
-                features = {"time":1602543588,"served_request":1900,"request_rate":300,"avgResponseTime":600,"performance":147,"cpu_usage":20,"memory":65351680}
-                response = self.predict(application, model, metric, features)
-                print(response)
+        data = {"metrics":["avgResponseTime","memory"],"timestamp":1623242615043,"epoch_start":1623242815041,"number_of_forward_predictions":8,"prediction_horizon":30}
+        self.startForecasting(json.dumps(data))
 
     def simulateMetricToPredict(self):
         data = [
@@ -301,7 +315,7 @@ class ForecastingManager():
         model.setDatasetCreationTime(time.time())
         #start training ml (application, url, metrics)
         metric = model.getMetric()
-        trainer = Train(application, metric, _time_column_name, model.getDatasetUrl(), number_of_forward_forecasting, steps, model.getPredictionHorizon())
+        trainer = Train(application, metric, _time_column_name, model.getDatasetUrl(), model.getNumberOfForwardPredictions(), steps, model.getPredictionHorizon())
         model.setMLModelStatus('started')
         result = trainer.prepareTraining()
         if len(result) > 0:
@@ -309,32 +323,19 @@ class ForecastingManager():
             model.setTrainingData(result)
             self.saveMorphemicModel()
             self.publishTrainingCompleted(model)
-            
-    def publish(self, metricValue, timestamp, probability, horizon, application, cloud, provider, level=1):
-        """
-            {
-                "metricValue": 12.34,
-                "level": 1,
-                "timestamp": 143532341251,
-                "probability": 0.98,
-                "horizon": 60000,
-                "refersTo": "MySQL_12345",
-                "cloud": "AWS-Dublin",
-                "provider": "AWS"
-            }
-        """
-        message = {'metricValue': metricValue, 'level': level, 'timestamp': timestamp, 'probability': probability,'horizon': horizon}
-        message['refersTo'] = application
-        message['cloud'] = cloud 
-        message['provider'] = provider
-        self.publisher.setParameters(message, orchestrator_queue_name)
-        self.publisher.send()
+            #start forecaster worker 
+            for w in self.workers:
+                if w.getTarget() == model.getMetric():
+                    w.setStop()
+                    time.sleep(5)
+            worker = Forecaster(self, model.getPredictionHorizon(), model.getEpochStart(), self.publisher, model.getMetric(), model.getApplication())
+            worker.start()
+            self.workers.append(worker)
 
     def publishTrainingCompleted(self, model):
         data = model.getTrainingData()
-        print(data)
         message = {"metrics": ["cpu_usage"], "forecasting_method":"cnn","timestamp": int(time.time())}
-        #print(message)
+        print(data)
         #self.publisher.setParameters(message, "training_models")
         #self.publisher.send()
 
@@ -359,13 +360,15 @@ class ForecastingManager():
         self.consumer_manager = ConsumersManager(list_queues,list_handlers)
         self.consumer_manager.connect()
         
-        #self.simulateMetricToPredict()
-        time.sleep(1)
+        self.simulateMetricToPredict()
+        time.sleep(10)
+        self.simulateForcasting()
+        time.sleep(100)
         self.simulateForcasting()
         while True:
-            for key, model in self.applications.items():
-                if model.getMLModelStatus() == "NotExist":
-                    self.trainModel(model)
+            #for key, model in self.applications.items():
+            #    if model.getMLModelStatus() == "NotExist":
+            #        self.trainModel(model)
             time.sleep(10)
                     
         

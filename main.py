@@ -97,12 +97,13 @@ class Predictor():
             return {'status': False, 'message': 'Model not found', 'data': None}
         model_metadata = self.applications_model[key]
         path = model_metadata["model_url"]
-        print("model path : "+ path)
+        #print("model path : "+ path)
         #data preparation
         data = self.loadDataset(model_metadata["dataset_url"])
         #if data.empty:
         #    return {'status': False, 'message': 'dataset empty', 'data': None}
-        data = data.append(self.feature_dict, ignore_index=True)
+        for _dict in self.feature_dict:
+            data = data.append(_dict, ignore_index=True)
         data['memory'] = data['memory']/1000000
         data = data.drop(columns=[self.target, 'time'])
         #data = data.round(decimals=2)
@@ -111,12 +112,12 @@ class Predictor():
         #important_features = model_metadata["features"]
         #important_features.remove(self.target)
         #data = important_data(data, important_features)
-        important_feature = list(self.feature_dict.keys())
+        important_feature = list(self.feature_dict[0].keys())
         important_feature.remove(self.target)
         important_feature.remove('time')
-        print(important_feature)
+        #print(important_feature)
         #data, scaler = Min_max_scal(data)
-        print(data)
+        #print(data)
         data = data.values
         new_sample = data[-self.steps:]
         #new_sample = np.array(self.feature_dict)
@@ -124,10 +125,17 @@ class Predictor():
 
         #new_sample = list()
         #new_sample.append(data)
-        #new_sample = np.array(new_sample)
+        #new_sample = np.array(new_sample
         predictor = keras.models.load_model(path)
-        y_predict = predictor.predict(new_sample, verbose=2)
-        return y_predict[0].astype('int')
+        y_predict = predictor.predict(new_sample, verbose=0)
+        y_predict = y_predict[0].astype('float')
+        returned_data = []
+        for v in y_predict:
+            interval = [v-3,v+3] #to change
+            prob = 0.8 #to change
+            returned_data.append([v, prob, interval])
+        return returned_data
+
         #y_predict = np.repeat(y_predict, len(important_features)).reshape((-1, len(important_features)))
         #return Min_max_scal_inverse(scaler, y_predict)[-1][-1] #the target is in the last position
 
@@ -148,6 +156,8 @@ class MorphemicModel():
         self.training_data = None 
         self.features = None 
         self.steps = None 
+        self.epoch_start = None 
+        self.number_of_forward_predictions = None 
 
     def getLowestPredictionProbability(self):
         return self.lowest_prediction_probability
@@ -195,6 +205,14 @@ class MorphemicModel():
         return self.steps
     def setsteps(self, steps):
         self.steps = steps 
+    def setNumberOfForwardPredictions(self, number):
+        self.number_of_forward_predictions = number 
+    def getNumberOfForwardPredictions(self):
+        return self.number_of_forward_predictions
+    def getEpochStart(self):
+        return self.epoch_start 
+    def setEpochStart(self, epoch):
+        self.epoch_start = epoch 
 
 class Model():
     def __init__(self, application, target, steps):
